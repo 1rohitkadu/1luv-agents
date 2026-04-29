@@ -66,13 +66,13 @@ app.post('/whatsapp/webhook', async (request, reply) => {
     console.log('Founder said: ' + message);
     if (message === 'status') {
       const stats = await getQueueStats();
-      await sendWhatsAppMessage(
+      // await sendWhatsAppMessage(
         process.env.FOUNDER_WHATSAPP!,
         '*1luv Status*\nQueued: ' + stats.waiting + '\nActive: ' + stats.active + '\nDone: ' + stats.completed
       );
     } else {
       await enqueue('ceo' as any, { task: data.body, source: 'founder' });
-      await sendWhatsAppMessage(
+      // await sendWhatsAppMessage(
         process.env.FOUNDER_WHATSAPP!,
         'Got it! CEO Agent is reviewing:\n"' + data.body + '"'
       );
@@ -93,7 +93,7 @@ async function main() {
     await app.listen({ port: PORT, host: '0.0.0.0' });
     console.log('1luv AI Company running on port ' + PORT);
     console.log('Waiting for WhatsApp commands...');
-    await sendWhatsAppMessage(
+    // await sendWhatsAppMessage(
       process.env.FOUNDER_WHATSAPP!,
       '*1luv AI Company Online*\n\nAll 8 agents ready:\nCEO, COO, CFO, PM, Frontend, Backend, QA, DevOps\n\nType any task to begin.'
     );
