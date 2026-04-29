@@ -70,7 +70,7 @@ const PROJECT_DIR = process.env.PROJECT_DIR || process.cwd();
 // ── WhatsApp webhook ────────────────────────────────────────────────
 app.post('/whatsapp/webhook', async (request, reply) => {
   try {
-    const data = parseIncomingWebhook(request.body);
+    const data = parseIncomingWebhook(request.body as Record<string, string>);
     if (!isFromFounder(data.from)) {
       return reply.send({ status: 'ignored' });
     }
@@ -89,7 +89,7 @@ app.post('/whatsapp/webhook', async (request, reply) => {
     } else if (message === 'costs') {
       await sendWhatsAppMessage(process.env.FOUNDER_WHATSAPP!, '💰 Cost report coming soon...');
     } else {
-      await enqueue('ceo', { task: data.body, source: 'founder' });
+      await enqueue('ceo_decision', { task: data.body, source: 'founder' });
       await sendWhatsAppMessage(
         process.env.FOUNDER_WHATSAPP!,
         `📥 Got it! Your CEO Agent is reviewing:\n"${data.body}"`
