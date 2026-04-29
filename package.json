@@ -1,0 +1,34 @@
+{
+  "name": "1luv-agents",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "tsx orchestrator/server.ts",
+    "dev": "tsx watch orchestrator/server.ts",
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.1",
+    "@linear/sdk": "^82.1.0",
+    "@octokit/rest": "^22.0.1",
+    "bullmq": "^5.76.4",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.8.5",
+    "ioredis": "^5.10.1",
+    "node-cron": "^4.2.1",
+    "tsx": "^4.21.0",
+    "twilio": "^6.0.0",
+    "winston": "^3.19.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3"
+  }
+}
