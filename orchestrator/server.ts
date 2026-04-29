@@ -20,7 +20,7 @@ const REQUIRED_VARS = [
   'TWILIO_AUTH_TOKEN',
   'TWILIO_WHATSAPP_NUMBER',
   'FOUNDER_WHATSAPP',
-  'REDIS_HOST',
+  'REDIS_URL',
 ];
 
 const missing = REQUIRED_VARS.filter((v) => !process.env[v]);
