@@ -17,136 +17,114 @@ import cron from 'node-cron';
 const app = Fastify({ logger: false });
 const PORT = Number(process.env.PORT) || 3000;
 
-// Instantiate agents
-const ceo = new CeoAgent();
-const coo = new CooAgent();
-const cfo = new CfoAgent();
-const pm = new PmAgent();
-const frontendDev = new DevFrontendAgent();
-const backendDev = new DevBackendAgent();
-const qa = new QaAgent();
-const devops = new DevopsAgent();
+// ── Check required env vars before doing anything ──────────────────
+const REQUIRED_VARS = [
+  'ANTHROPIC_API_KEY',
+  'TWILIO_ACCOUNT_SID',
+  'TWILIO_AUTH_TOKEN',
+  'TWILIO_WHATSAPP_NUMBER',
+  'FOUNDER_WHATSAPP',
+  'REDIS_HOST',
+];
+
+const missing = REQUIRED_VARS.filter((v) => !process.env[v]);
+if (missing.length > 0) {
+  console.error('');
+  console.error('🔴 MISSING ENVIRONMENT VARIABLES:');
+  missing.forEach((v) => console.error(`   ❌ ${v} is not set`));
+  console.error('');
+  console.error('Add these in Railway → your project → Variables tab');
+  console.error('');
+  process.exit(1);
+}
+
+// ── Instantiate agents safely ───────────────────────────────────────
+let ceo: CeoAgent;
+let coo: CooAgent;
+let cfo: CfoAgent;
+let pm: PmAgent;
+let frontendDev: DevFrontendAgent;
+let backendDev: DevBackendAgent;
+let qa: QaAgent;
+let devops: DevopsAgent;
+
+try {
+  ceo       = new CeoAgent();
+  coo       = new CooAgent();
+  cfo       = new CfoAgent();
+  pm        = new PmAgent();
+  frontendDev = new DevFrontendAgent();
+  backendDev  = new DevBackendAgent();
+  qa        = new QaAgent();
+  devops    = new DevopsAgent();
+  console.log('✅ All agents instantiated successfully');
+} catch (err) {
+  console.error('🔴 AGENT STARTUP ERROR:');
+  console.error(err instanceof Error ? err.message : JSON.stringify(err));
+  console.error(err instanceof Error ? err.stack : '');
+  process.exit(1);
+}
 
 const PROJECT_DIR = process.env.PROJECT_DIR || process.cwd();
 
-// ── Job processor ─────────────────────────────────────────────────────────────
-async function processJob(job: Job<AgentJob>): Promise<unknown> {
-  const { type, payload } = job.data;
-  logger.info('Processing job', { type, jobId: job.id });
-
-  switch (type) {
-    case 'ceo_decision':
-      return ceo.makeArchitectureDecision(payload.problem as string);
-
-    case 'breakdown_feature':
-      return pm.breakdownFeature(payload.feature as string);
-
-    case 'implement_task': {
-      const { taskId, title, description, assignedTo } = payload as { taskId: string; title: string; description: string; assignedTo: string };
-      if (assignedTo === 'frontend-dev') return frontendDev.implementTask(taskId, title, description, PROJECT_DIR);
-      if (assignedTo === 'backend-dev') return backendDev.implementTask(taskId, title, description, PROJECT_DIR);
-      throw new Error(`Unknown assignee: ${assignedTo}`);
+// ── WhatsApp webhook ────────────────────────────────────────────────
+app.post('/whatsapp/webhook', async (request, reply) => {
+  try {
+    const data = parseIncomingWebhook(request.body);
+    if (!isFromFounder(data.from)) {
+      return reply.send({ status: 'ignored' });
     }
 
-    case 'review_code': {
-      const { code, spec, taskId } = payload as { code: string; spec: string; taskId: string };
-      return qa.reviewCode(code, spec, taskId);
+    const message = data.body?.trim().toLowerCase();
+    console.log(`[WhatsApp] Founder said: "${message}"`);
+
+    if (message === 'status') {
+      const stats = await getQueueStats();
+      await sendWhatsAppMessage(
+        process.env.FOUNDER_WHATSAPP!,
+        `*1luv Agent Status* 🤖\n\nQueued: ${stats.waiting}\nActive: ${stats.active}\nCompleted: ${stats.completed}\n\nAll agents online ✅`
+      );
+    } else if (message === 'pause') {
+      await sendWhatsAppMessage(process.env.FOUNDER_WHATSAPP!, '⏸ Pausing agents...');
+    } else if (message === 'costs') {
+      await sendWhatsAppMessage(process.env.FOUNDER_WHATSAPP!, '💰 Cost report coming soon...');
+    } else {
+      await enqueue('ceo', { task: data.body, source: 'founder' });
+      await sendWhatsAppMessage(
+        process.env.FOUNDER_WHATSAPP!,
+        `📥 Got it! Your CEO Agent is reviewing:\n"${data.body}"`
+      );
     }
 
-    case 'deploy': {
-      const { service, branch } = payload as { service: string; branch: string };
-      return devops.handleDeployment(service, branch, PROJECT_DIR);
-    }
-
-    case 'coo_coordinate':
-      return coo.coordinateSprint();
-
-    case 'daily_report':
-      return cfo.generateDailyCostReport();
-
-    case 'whatsapp_message':
-      return sendWhatsAppMessage(payload.message as string);
-
-    default:
-      throw new Error(`Unknown job type: ${type}`);
+    reply.send({ status: 'ok' });
+  } catch (err) {
+    console.error('Webhook error:', err instanceof Error ? err.message : err);
+    reply.status(500).send({ status: 'error' });
   }
-}
-
-// ── Routes ────────────────────────────────────────────────────────────────────
-app.post('/webhook/whatsapp', async (req, reply) => {
-  const body = req.body as Record<string, string>;
-  const msg = parseIncomingWebhook(body);
-
-  if (!isFromFounder(msg.from)) {
-    logger.warn('Ignoring WhatsApp from non-founder', { from: msg.from });
-    return reply.send('<Response/>');
-  }
-
-  logger.info('Incoming WhatsApp from founder', { body: msg.body });
-
-  // Route commands
-  const text = msg.body.trim();
-  if (text.toLowerCase().startsWith('/ceo ')) {
-    await enqueue('ceo_decision', { problem: text.slice(5) }, { priority: 1 });
-    await sendWhatsAppMessage('CEO is thinking... ⏳');
-  } else if (text.toLowerCase().startsWith('/feature ')) {
-    await enqueue('breakdown_feature', { feature: text.slice(9) }, { priority: 2 });
-    await sendWhatsAppMessage('PM is breaking down the feature... ⏳');
-  } else if (text.toLowerCase() === '/status') {
-    const stats = await getQueueStats();
-    await sendWhatsAppMessage(`*1luv Agent Status*\nQueue: ${JSON.stringify(stats, null, 2)}`);
-  } else if (text.toLowerCase() === '/standup') {
-    await enqueue('coo_coordinate', {});
-  } else if (text.toLowerCase() === '/report') {
-    await enqueue('daily_report', {}, { priority: 1 });
-  } else {
-    // General message → COO
-    const response = await coo.run(text);
-    await sendWhatsAppMessage(response.slice(0, 1500));
-  }
-
-  reply.send('<Response/>');
 });
 
-app.get('/health', async () => ({ status: 'ok', ts: new Date().toISOString() }));
-
-app.get('/queue/stats', async () => getQueueStats());
-
-// ── Scheduled jobs ────────────────────────────────────────────────────────────
-function scheduleJobs() {
-  // Daily standup at 9am
-  cron.schedule('0 9 * * 1-5', () => enqueue('coo_coordinate', {}));
-  // Daily cost report at 6pm
-  cron.schedule('0 18 * * *', () => enqueue('daily_report', {}));
-  // Budget check every hour
-  cron.schedule('0 * * * *', () => cfo.checkBudget());
-  // Reset daily spend at midnight
-  cron.schedule('0 0 * * *', () => cfo.resetBudget());
-}
-
-// ── Bootstrap ─────────────────────────────────────────────────────────────────
-async function start() {
-  const worker = createWorker(processJob);
-
-  scheduleJobs();
-
-  await app.listen({ port: PORT, host: '0.0.0.0' });
-  logger.info(`1luv-agents server running on port ${PORT}`);
-
-  await sendWhatsAppMessage(`*1luv Agents Online* 🤖\nServer started on port ${PORT}. Type /status to check.`).catch(() => {});
-
-  const shutdown = async () => {
-    logger.info('Shutting down...');
-    await worker.close();
-    await app.close();
-    process.exit(0);
-  };
-
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
-}
-
-start().catch((err) => {
-  logger.error('Failed to start server', { err });
-  process.exit(1);
+// ── Health check ────────────────────────────────────────────────────
+app.get('/health', async (_, reply) => {
+  reply.send({ status: 'ok', agents: 8, timestamp: new Date().toISOString() });
 });
+
+// ── Start server ────────────────────────────────────────────────────
+async function main() {
+  try {
+    await app.listen({ port: PORT, host: '0.0.0.0' });
+    console.log(`🚀 1luv AI Company running on port ${PORT}`);
+    console.log('📱 Waiting for founder commands on WhatsApp...');
+
+    await sendWhatsAppMessage(
+      process.env.FOUNDER_WHATSAPP!,
+      `*1luv AI Company Online* 🚀\n\nYour AI team is ready:\n✅ CEO Agent\n✅ COO Agent\n✅ CFO Agent\n✅ Project Manager\n✅ Frontend Dev\n✅ Backend Dev\n✅ QA Agent\n✅ DevOps Agent\n\nType any task to begin.`
+    );
+  } catch (err) {
+    console.error('🔴 SERVER FAILED TO START:');
+    console.error(err instanceof Error ? err.message : JSON.stringify(err));
+    console.error(err instanceof Error ? err.stack : '');
+    process.exit(1);
+  }
+}
+
+main();
