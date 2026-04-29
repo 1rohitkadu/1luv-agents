@@ -1,6 +1,6 @@
 import { BaseAgent } from './base-agent';
 import { upsertTask } from '../memory/project-state';
-import { createTicket, getTeamId } from '../tools/linear';
+import { createLinearTask } from '../tools/linear';
 import { readFile } from '../tools/filesystem';
 import path from 'path';
 
@@ -35,7 +35,7 @@ export class PmAgent extends BaseAgent {
 
     let tickets: Array<{ title: string; description: string; assignedTo: string }> = [];
     try {
-      const match = response.match(/```(?:json)?\s*([\s\S]*?)```/);
+      const match = response.match(/\`\`\`(?:json)?\s*([\s\S]*?)\`\`\`/);
       tickets = JSON.parse(match ? match[1] : response);
     } catch {
       this.log.warn('Failed to parse tickets JSON, returning raw response');
@@ -61,10 +61,13 @@ export class PmAgent extends BaseAgent {
 
   async createLinearTickets(tickets: Array<{ title: string; description: string; assignedTo: string }>): Promise<void> {
     try {
-      const teamId = await getTeamId('Engineering');
       for (const t of tickets) {
-        const linearId = await createTicket({ title: t.title, description: t.description, teamId });
-        this.log.info('Linear ticket created', { linearId, title: t.title });
+        await createLinearTask({
+          title: t.title,
+          description: t.description,
+          priority: 'medium',
+        });
+        this.log.info('Linear ticket created', { title: t.title });
       }
     } catch (err) {
       this.log.warn('Could not create Linear tickets', { err });
